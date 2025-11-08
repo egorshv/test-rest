@@ -1,3 +1,9 @@
-from app.services import activity_service, geo
+from app.services.activity_service import ActivityService
+from app.services.building_service import BuildingService
+from app.services.organization_service import OrganizationService
 
-__all__ = ["activity_service", "geo"]
+__all__ = [
+    "ActivityService",
+    "BuildingService",
+    "OrganizationService",
+]

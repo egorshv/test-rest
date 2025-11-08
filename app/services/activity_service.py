@@ -2,56 +2,66 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-
+from app.dao import ActivityDAO, OrganizationDAO
 from app.models import Activity
 from app.schemas.activity import ActivityRead
+from app.services.exceptions import NotFoundError
 
 
-def fetch_activity_descendant_ids(db: Session, root_activity_id: int) -> list[int]:
-    activities = db.scalars(select(Activity)).all()
-    if root_activity_id not in {activity.id for activity in activities}:
-        return []
+class ActivityService:
+    def __init__(self, activity_dao: ActivityDAO, organization_dao: OrganizationDAO):
+        self.activity_dao = activity_dao
+        self.organization_dao = organization_dao
 
-    adjacency: dict[int | None, list[Activity]] = defaultdict(list)
-    for activity in activities:
-        adjacency[activity.parent_id].append(activity)
+    def get_activity_tree(self) -> list[ActivityRead]:
+        activities = self.activity_dao.list_all()
+        adjacency = self._build_adjacency(activities)
+        return [self._serialize_activity_tree(node, adjacency) for node in adjacency[None]]
 
-    descendants: list[int] = []
-    queue: deque[int] = deque([root_activity_id])
+    def organizations_for_activity(self, activity_id: int):
+        activities = self.activity_dao.list_all()
+        descendant_ids = self._descendant_ids(activities, activity_id)
+        if not descendant_ids:
+            raise NotFoundError("Activity not found")
+        return self.organization_dao.list_by_activity_ids(descendant_ids)
 
-    while queue:
-        current_id = queue.popleft()
-        descendants.append(current_id)
-        for child in adjacency[current_id]:
-            queue.append(child.id)
+    def organizations_for_activity_name(self, name: str):
+        activity = self.activity_dao.find_by_name(name)
+        if not activity:
+            raise NotFoundError("Activity not found")
+        return self.organizations_for_activity(activity.id)
 
-    return descendants
+    @staticmethod
+    def _build_adjacency(activities: list[Activity]) -> dict[int | None, list[Activity]]:
+        adjacency: dict[int | None, list[Activity]] = defaultdict(list)
+        for activity in activities:
+            adjacency[activity.parent_id].append(activity)
+        return adjacency
 
+    def _descendant_ids(self, activities: list[Activity], root_activity_id: int) -> list[int]:
+        if root_activity_id not in {activity.id for activity in activities}:
+            return []
 
-def find_activity_by_name(db: Session, name: str) -> Activity | None:
-    stmt = select(Activity).where(func.lower(Activity.name) == func.lower(name.strip()))
-    return db.scalar(stmt)
+        adjacency = self._build_adjacency(activities)
+        descendants: list[int] = []
+        queue: deque[int] = deque([root_activity_id])
 
+        while queue:
+            current_id = queue.popleft()
+            descendants.append(current_id)
+            for child in adjacency[current_id]:
+                queue.append(child.id)
 
-def fetch_activity_tree(db: Session) -> list[ActivityRead]:
-    activities = db.scalars(select(Activity).order_by(Activity.level, Activity.name)).all()
-    adjacency: dict[int | None, list[Activity]] = defaultdict(list)
-    for activity in activities:
-        adjacency[activity.parent_id].append(activity)
+        return descendants
 
-    return [_serialize_activity_tree(node, adjacency) for node in adjacency[None]]
-
-
-def _serialize_activity_tree(activity: Activity, adjacency: dict[int | None, list[Activity]]) -> ActivityRead:
-    children = [_serialize_activity_tree(child, adjacency) for child in adjacency.get(activity.id, [])]
-    return ActivityRead.model_validate(
-        {
-            "id": activity.id,
-            "name": activity.name,
-            "parent_id": activity.parent_id,
-            "level": activity.level,
-            "children": children or None,
-        }
-    )
+    def _serialize_activity_tree(self, activity: Activity, adjacency: dict[int | None, list[Activity]]) -> ActivityRead:
+        children = [self._serialize_activity_tree(child, adjacency) for child in adjacency.get(activity.id, [])]
+        return ActivityRead.model_validate(
+            {
+                "id": activity.id,
+                "name": activity.name,
+                "parent_id": activity.parent_id,
+                "level": activity.level,
+                "children": children or None,
+            }
+        )
