@@ -1,12 +1,32 @@
-version: "3.9"
-
 services:
   api:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      API_KEY: secret-api-key
-      DATABASE_URL: sqlite:////app/app.db
+      API_KEY: ${API_KEY:-secret-api-key}
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - ./app.db:/app/app.db
+      - pg_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pg_data:
