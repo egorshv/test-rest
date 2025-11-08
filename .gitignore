@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+.idea/
 
 # C extensions
 *.so
@@ -157,6 +158,10 @@ venv.bak/
 # mypy
 .mypy_cache/
 .dmypy.json
+.pyre/
+
+# sqlite database
+app.db
 dmypy.json
 
 # Pyre type checker
